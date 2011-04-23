@@ -389,27 +389,58 @@ decode.ip = function (raw_packet, offset) {
     return ret;
 };
 
+decode.ip6_ext_header = function(raw_packet, ip, offset, next_header){
+    var header = {};
+    header.name = "IP Ext Header " + next_header;
+    header.next_header = raw_packet[offset];
+    if(header.next_header != 43){
+	var lengthfield = raw_packet[offset + 1];
+	header.length = (lengthfield + 1) * 8;
+    }else{
+	header.length = 8;
+    }
+    return header;
+}
+
 decode.ip6_header = function(raw_packet, next_header, ip, offset) {
-    switch (next_header) {
-    case 1:
-        ip.protocol_name = "ICMP";
-        ip.icmp = decode.icmp(raw_packet, offset);
-        break;
-    case 2:
-        ip.protocol_name = "IGMP";
-        ip.igmp = decode.igmp(raw_packet, offset);
-        break;
-    case 6:
-        ip.protocol_name = "TCP";
-        ip.tcp = decode.tcp(raw_packet, offset, ip);
-        break;
-    case 17:
-        ip.protocol_name = "UDP";
-        ip.udp = decode.udp(raw_packet, offset);
-        break;
-    default:
-		// TODO: capture the extensions
-		decode.ip6_header(raw_packet, raw_packet[offset], offset + raw_packet[offset+1]);
+    while(true){
+	switch (next_header) {
+	case 0:
+	case 43:
+	case 44:
+	case 50:
+	case 51:
+	case 60:
+	    var header = decode.ip6_ext_header(raw_packet, ip, offset, next_header);
+	    ip.extension_headers.push(header);
+	    offset += header.length;
+	    next_header = header.next_header;
+	    break;
+	case 1:
+            ip.protocol_name = "ICMP";
+            ip.icmp = decode.icmp(raw_packet, offset);
+            return;
+	case 2:
+            ip.protocol_name = "IGMP";
+            ip.igmp = decode.igmp(raw_packet, offset);
+            return;
+	case 6:
+            ip.protocol_name = "TCP";
+            ip.tcp = decode.tcp(raw_packet, offset, ip);
+            return;
+	case 17:
+            ip.protocol_name = "UDP";
+            ip.udp = decode.udp(raw_packet, offset);
+            return;
+	case 58:
+	    ip.protocol_name = "ICMPv6";
+	    ip.icmp6 = decode.icmp6(raw_packet, offset);
+	    return;
+	case 59:
+	default:
+	    ip.protocol_name = "IPv6";
+	    return;
+	}
     }
 };
 
@@ -418,20 +449,21 @@ decode.ip6 = function (raw_packet, offset) {
     
     // http://en.wikipedia.org/wiki/IPv6
     ret.version = (raw_packet[offset] & 240) >> 4; // first 4 bits
-	ret.traffic_class = ((raw_packet[offset] & 15) << 4) + ((raw_packet[offset+1] & 240) >> 4);
-	ret.flow_label = ((raw_packet[offset + 1] & 15) << 16) + 
+    ret.traffic_class = ((raw_packet[offset] & 15) << 4) + ((raw_packet[offset+1] & 240) >> 4);
+    ret.flow_label = ((raw_packet[offset + 1] & 15) << 16) + 
         (raw_packet[offset + 2] << 8) +
         raw_packet[offset + 3];
-	ret.payload_length = unpack.uint16(raw_packet, offset+4);
-	ret.total_length = ret.payload_length + 40;
-	ret.next_header = raw_packet[offset+6];
-	ret.hop_limit = raw_packet[offset+7];
-	ret.saddr = unpack.ipv6_addr(raw_packet, offset+8);
-	ret.daddr = unpack.ipv6_addr(raw_packet, offset+24);
-	ret.header_bytes = 40;
+    ret.payload_length = unpack.uint16(raw_packet, offset+4);
+    ret.total_length = ret.payload_length + 40;
+    ret.next_header = raw_packet[offset+6];
+    ret.hop_limit = raw_packet[offset+7];
+    ret.saddr = unpack.ipv6_addr(raw_packet, offset+8);
+    ret.daddr = unpack.ipv6_addr(raw_packet, offset+24);
+    ret.header_bytes = 40;
+    ret.extension_headers = [];
 
-	decode.ip6_header(raw_packet, ret.next_header, ret, offset+40);
-	return ret;
+    decode.ip6_header(raw_packet, ret.next_header, ret, offset+40);
+    return ret;
 };
 
 decode.icmp = function (raw_packet, offset) {
@@ -463,6 +495,29 @@ decode.icmp = function (raw_packet, offset) {
     // There are usually more exciting things hiding in ICMP packets after the headers
     return ret;
 };
+
+decode.icmp6 = function(raw_packet, offset){
+    var ret = {};
+    ret.type = raw_packet[offset];
+    ret.code = raw_packet[offset + 1];
+    ret.checksum = unpack.uint16(raw_packet, offset + 2); // 2, 3
+    var descs = decode.icmp_descs[ret.type];
+    if(descs){
+	var str = descs[ret.code];
+	if(!str){
+	    str = decode.icmp_fallbacks[ret.type];
+	    if(str){
+		str = str + ret.code + ")";
+	    }else{
+		str = descs[0];
+	    }
+	}
+	ret.type_desc = str;
+    }else{
+        ret.type_desc = "type " + ret.type + " code " + ret.code;
+    }
+    return ret;
+}
 
 decode.igmp = function (raw_packet, offset) {
     var ret = {};
@@ -843,6 +898,55 @@ print.ip = function (packet) {
     return ret;
 };
 
+print.ip6 = function(packet) {
+    var ret = "";
+    var headers = "[";
+    var ip = packet.link.ipv6;
+    var i = 0;
+    for(i = 0; i < ip.extension_headers.length; i++){
+	if( i != 0){headers += ", ";}
+	headers += ip.extension_headers[i].name;
+    }
+    headers += "]";
+    
+    switch (ip.protocol_name) {
+    case "TCP":
+        ret += " " + headers + " " + dns_cache.ptr(ip.saddr) + ":" + ip.tcp.sport + " -> " + dns_cache.ptr(ip.daddr) + ":" + ip.tcp.dport + 
+            " TCP len " + ip.total_length + " [" + 
+            Object.keys(ip.tcp.flags).filter(function (v) {
+                if (ip.tcp.flags[v] === 1) {
+                    return true;
+                }
+            }).join(",") + "]";
+        break;
+    case "UDP":
+        ret += " "  + headers + " " + dns_cache.ptr(ip.saddr) + ":" + ip.udp.sport + " -> " + dns_cache.ptr(ip.daddr) + ":" + ip.udp.dport;
+        if (ip.udp.sport === 53 || ip.udp.dport === 53) {
+            ret += print.dns(packet);
+        } else {
+            ret += " UDP len " + ip.total_length;
+        }
+        break;
+    case "ICMP":
+        ret += " "  + headers + " " + dns_cache.ptr(ip.saddr) + " -> " + dns_cache.ptr(ip.daddr) + " ICMP " + ip.icmp.type_desc + " " + 
+            ip.icmp.sequence;
+        break;
+    case "ICMPv6":
+	//	ret += " " + headers + " " + dns_cache.ptr(ip.saddr) + " -> " + dns_cache.ptr(ip.addr) + " ICMPv6 " + ip.icmp6.type_desc;
+	ret += " " + headers + " ICMPv6 " + ip.icmp6.type_desc;
+	break;
+    case "IGMP":
+        ret += " "  + headers + " " + dns_cache.ptr(ip.saddr) + " -> " + dns_cache.ptr(ip.daddr) + " IGMP " + ip.igmp.type_desc + " " + 
+            ip.igmp.group_address;
+        break;
+    default:
+        ret += " proto " + ip.protocol_name + "( " + headers + " ) ";
+        break;
+    }
+
+    return ret;
+}
+
 print.arp = function (packet) {
     var ret = "",
         arp = packet.link.arp;
@@ -874,7 +978,7 @@ print.ethernet = function (packet) {
         ret += print.arp(packet);
         break;
     case 0x86dd:
-        ret += " IPv6 ";
+        ret += print.ip6(packet);//" IPv6 ";
         break;
     case 0x88cc:
         ret += " LLDP ";
