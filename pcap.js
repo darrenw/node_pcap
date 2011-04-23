@@ -407,12 +407,37 @@ decode.ip6_padNOption = function(raw_packet, offset, header){
     return opt;
 }
 
+decode.ip6_routerAlertOption = function(raw_packet, offset, header){
+    var opt = {};
+    opt.name = "Router Alert";
+    opt.length = raw_packet[offset + 1];
+    if(opt.length != 2){opt.valid = false; header.valid = false;}
+    opt.value = unpack.uint16(raw_packet,offset + 2);
+    switch(opt.value){
+    case 0:
+	opt.message = "Multicast Listener Discovery";
+	break;
+    case 1:
+	opt.message = "RSVP Message";
+	break;
+    case 2:
+	opt.message = "Active Networks Message";
+	break;
+    default:
+	opt.message = "Unknown Router Alert";
+	break;
+    }
+    
+    return opt;
+}
+
 
 // TODO: More options...
-decode.ip6_options = {0 : decode.ip6_pad0Option, 1: decode.ip6_padNOption};
+decode.ip6_options = {0 : decode.ip6_pad0Option, 1: decode.ip6_padNOption, 5 : decode.ip6_routerAlertOption};
 
 decode.ip6_optionsheader = function(raw_packet, ip, offset, header){
     header.options = [];
+    offset += 2;
     var cursor = 0;
     while(cursor < header.length){
 	var opttype = raw_packet[offset + cursor];
@@ -1017,6 +1042,14 @@ print.ip6 = function(packet) {
 	if( i != 0){headers += ", ";}
 	var header = ip.extension_headers[i];
 	headers += header.name + "(" + header.length + ")";
+	if(header.options){
+	    headers += "["
+	    for(var j = 0; j < header.options.length; j++){
+		if(j != 0){headers += ",";}
+		headers += header.options[j].name;
+	    }
+	    headers += "]";
+	}
     }
     headers += "]";
     
