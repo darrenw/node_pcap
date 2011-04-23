@@ -406,6 +406,7 @@ decode.ip6_ext_header = function(raw_packet, ip, offset, next_header){
 }
 
 decode.ip6_header = function(raw_packet, next_header, ip, offset) {
+    ip.protocol_name = "IPv6";
     while(true){
 	switch (next_header) {
 	case 0:
@@ -416,8 +417,13 @@ decode.ip6_header = function(raw_packet, next_header, ip, offset) {
 	case 60:
 	    var header = decode.ip6_ext_header(raw_packet, ip, offset, next_header);
 	    ip.extension_headers.push(header);
-	    offset += header.length;
-	    next_header = header.next_header;
+	    if(check_length(raw_packet, offset, header.length)){
+		offset += header.length;
+		next_header = header.next_header;
+	    }else{
+		ip.valid = false;
+		return;
+	    }
 	    break;
 	case 1:
             ip.protocol_name = "ICMP";
@@ -441,15 +447,30 @@ decode.ip6_header = function(raw_packet, next_header, ip, offset) {
 	    return;
 	case 59:
 	default:
-	    ip.protocol_name = "IPv6";
 	    return;
 	}
     }
 };
 
+// Prevent stale values sneaking in due to reading off the end of a packet (instead we read 0 and mark the packet as invalid)
+check_length = function(raw_packet, offset, needed){
+    var remaining = raw_packet.pcap_header.caplen - offset;
+    if(remaining >= needed){
+	return true;
+    }else{
+	var packet_end = offset + remaining;
+	var needed_end = offset + needed;
+	for(i = packet_end; i < needed_end; i++){
+	    raw_packet[i] = 0;
+	}
+	return false;
+    }
+    
+}
+
 decode.ip6 = function (raw_packet, offset) {
     var ret = {};
-    
+    var long_enough = check_length(raw_packet, offset, 40);
     // http://en.wikipedia.org/wiki/IPv6
     ret.version = (raw_packet[offset] & 240) >> 4; // first 4 bits
     ret.traffic_class = ((raw_packet[offset] & 15) << 4) + ((raw_packet[offset+1] & 240) >> 4);
@@ -464,8 +485,11 @@ decode.ip6 = function (raw_packet, offset) {
     ret.daddr = unpack.ipv6_addr(raw_packet, offset+24);
     ret.header_bytes = 40;
     ret.extension_headers = [];
-
-    decode.ip6_header(raw_packet, ret.next_header, ret, offset+40);
+    if(long_enough){
+	decode.ip6_header(raw_packet, ret.next_header, ret, offset+40);
+    }else{
+	ret.valid = false;
+    }
     return ret;
 };
 
