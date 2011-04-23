@@ -423,6 +423,10 @@ decode.ip6_fragmentheader = function(raw_packet, ip, offset, header){
 }
 
 decode.ip6_ahheader = function(raw_packet, ip, offset, header){
+    header.reserved = unpack.uint16(raw_packet, offset + 2);
+    header.spi = unpack.uint32(raw_packet, offset + 4);
+    header.sequence_number = unpack.uint32(raw_packet, 8);
+    // TODO: what to do with auth data?
 }
 
 decode.ip6_parsers = {0 : decode.ip6_optionsheader, 43 : decode.ip6_routingheader, 44 : decode.ip6_fragmentheader, 51 : decode.ip6_ahheader, 60 : decode.ip6_optionsheader};
