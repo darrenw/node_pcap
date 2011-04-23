@@ -396,11 +396,14 @@ decode.ip6_ext_header = function(raw_packet, ip, offset, next_header){
     var header = {};
     header.next_header = raw_packet[offset];
     header.name = decode.ip6_headernames[next_header];
-    if(header.next_header != 44){
+    if(next_header == 44){
+	header.length = 8;
+    }else if(next_header == 51){
+	var lengthfield = raw_packet[offset + 1];
+	header.length = (lengthfield + 2) * 4;
+    }else{
 	var lengthfield = raw_packet[offset + 1];
 	header.length = (lengthfield + 1) * 8;
-    }else{
-	header.length = 8;
     }
     return header;
 }
@@ -412,12 +415,11 @@ decode.ip6_header = function(raw_packet, next_header, ip, offset) {
 	case 0:
 	case 43:
 	case 44:
-	case 50:
 	case 51:
 	case 60:
 	    var header = decode.ip6_ext_header(raw_packet, ip, offset, next_header);
 	    ip.extension_headers.push(header);
-	    if(check_length(raw_packet, offset, header.length)){
+	    if(decode.check_length(raw_packet, offset, header.length)){
 		offset += header.length;
 		next_header = header.next_header;
 	    }else{
@@ -441,6 +443,9 @@ decode.ip6_header = function(raw_packet, next_header, ip, offset) {
             ip.protocol_name = "UDP";
             ip.udp = decode.udp(raw_packet, offset);
             return;
+	case 50:
+	    ip.protocol_name = "ESP";
+	    return;
 	case 58:
 	    ip.protocol_name = "ICMPv6";
 	    ip.icmp6 = decode.icmp6(raw_packet, offset);
@@ -453,7 +458,7 @@ decode.ip6_header = function(raw_packet, next_header, ip, offset) {
 };
 
 // Prevent stale values sneaking in due to reading off the end of a packet (instead we read 0 and mark the packet as invalid)
-check_length = function(raw_packet, offset, needed){
+decode.check_length = function(raw_packet, offset, needed){
     var remaining = raw_packet.pcap_header.caplen - offset;
     if(remaining >= needed){
 	return true;
@@ -470,7 +475,7 @@ check_length = function(raw_packet, offset, needed){
 
 decode.ip6 = function (raw_packet, offset) {
     var ret = {};
-    var long_enough = check_length(raw_packet, offset, 40);
+    var long_enough = decode.check_length(raw_packet, offset, 40);
     // http://en.wikipedia.org/wiki/IPv6
     ret.version = (raw_packet[offset] & 240) >> 4; // first 4 bits
     ret.traffic_class = ((raw_packet[offset] & 15) << 4) + ((raw_packet[offset+1] & 240) >> 4);
@@ -932,7 +937,7 @@ print.ip6 = function(packet) {
     var i = 0;
     for(i = 0; i < ip.extension_headers.length; i++){
 	if( i != 0){headers += ", ";}
-	headers += ip.extension_headers[i].name;
+	headers += ip.extension_headers[i].name + "(" + ip.extension_headers[i].length + ")";
     }
     headers += "]";
     
