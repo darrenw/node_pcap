@@ -389,11 +389,14 @@ decode.ip = function (raw_packet, offset) {
     return ret;
 };
 
+decode.ip6_headernames = { 0 : "Hop By Hop", 43 : "Routing", 44 : "Fragment", 50 : "ESP", 51 : "AH",
+			   60 : "Destination Options"};
+
 decode.ip6_ext_header = function(raw_packet, ip, offset, next_header){
     var header = {};
-    header.name = "IP Ext Header " + next_header;
     header.next_header = raw_packet[offset];
-    if(header.next_header != 43){
+    header.name = decode.ip6_headernames[next_header];
+    if(header.next_header != 44){
 	var lengthfield = raw_packet[offset + 1];
 	header.length = (lengthfield + 1) * 8;
     }else{
