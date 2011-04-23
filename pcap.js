@@ -392,6 +392,29 @@ decode.ip = function (raw_packet, offset) {
 decode.ip6_headernames = { 0 : "Hop By Hop", 43 : "Routing", 44 : "Fragment", 50 : "ESP", 51 : "AH",
 			   60 : "Destination Options"};
 
+decode.ip6_optionsheader = function(raw_packet, ip, offset, header){
+}
+
+decode.ip6_routingheader = function(raw_packet, ip, offset, header){
+}
+
+decode.ip6_fragmentheader = function(raw_packet, ip, offset, header){
+    header.reserved1 = raw_packet[offset + 1];
+    var frag_off = unpack.uint16(raw_packet,offset + 2);
+    header.fragment_offset = (frag_off >> 3) * 8;
+    if(offset != 0){
+	header.next_header = 59;
+    }
+    header.reserved2 = frag_off & 0x6;
+    header.morefragments = frag_off & 0x1;
+    header.identification = unpack.uint32(raw_packet,offset + 4);
+}
+
+decode.ip6_ahheader = function(raw_packet, ip, offset, header){
+}
+
+decode.ip6_parsers = {0 : decode.ip6_optionsheader, 43 : decode.ip6_routingheader, 44 : decode.ip6_fragmentheader, 51 : decode.ip6_ahheader, 60 : decode.ip6_optionsheader};
+
 decode.ip6_ext_header = function(raw_packet, ip, offset, next_header){
     var header = {};
     header.next_header = raw_packet[offset];
@@ -405,6 +428,9 @@ decode.ip6_ext_header = function(raw_packet, ip, offset, next_header){
 	var lengthfield = raw_packet[offset + 1];
 	header.length = (lengthfield + 1) * 8;
     }
+    header.valid = decode.check_length(raw_packet, offset, header.length);
+    decode.ip6_parsers[next_header](raw_packet, ip, offset, header);
+    
     return header;
 }
 
@@ -419,7 +445,7 @@ decode.ip6_header = function(raw_packet, next_header, ip, offset) {
 	case 60:
 	    var header = decode.ip6_ext_header(raw_packet, ip, offset, next_header);
 	    ip.extension_headers.push(header);
-	    if(decode.check_length(raw_packet, offset, header.length)){
+	    if(header.valid){
 		offset += header.length;
 		next_header = header.next_header;
 	    }else{
@@ -937,7 +963,8 @@ print.ip6 = function(packet) {
     var i = 0;
     for(i = 0; i < ip.extension_headers.length; i++){
 	if( i != 0){headers += ", ";}
-	headers += ip.extension_headers[i].name + "(" + ip.extension_headers[i].length + ")";
+	var header = ip.extension_headers[i];
+	headers += header.name + "(" + header.length + ")";
     }
     headers += "]";
     
