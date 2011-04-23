@@ -396,6 +396,18 @@ decode.ip6_optionsheader = function(raw_packet, ip, offset, header){
 }
 
 decode.ip6_routingheader = function(raw_packet, ip, offset, header){
+    header.routing_type = raw_packet[offset + 2];
+    header.segments_left = raw_packet[offset + 3];
+    header.segments = [];
+    var seg_size = 0;
+    if(header.routing_type == 0){
+	header.segments_valid = decode.check_length(raw_packet, offset + 4, header.segments_left * 16);
+	var segment_cursor = offset + 4;
+	for(var i = 0; i < header.segments_left; i++){
+	    header.segments.push(unpack.ipv6_addr(raw_packet, segment_cursor));
+	    segment_cursor += s;
+	}
+    }// TODO: other cases (type 1, type 2)
 }
 
 decode.ip6_fragmentheader = function(raw_packet, ip, offset, header){
