@@ -392,7 +392,43 @@ decode.ip = function (raw_packet, offset) {
 decode.ip6_headernames = { 0 : "Hop By Hop", 43 : "Routing", 44 : "Fragment", 50 : "ESP", 51 : "AH",
 			   60 : "Destination Options"};
 
+
+decode.ip6_pad0Option = function(raw_packet, offset, header){
+    var opt = {};
+    opt.name = "Pad0";
+    opt.length = 1;
+    return opt;
+}
+
+decode.ip6_padNOption = function(raw_packet, offset, header){
+    var opt = {};
+    opt.name = "PadN";
+    opt.length = raw_packet[offset + 1] - 2;
+    return opt;
+}
+
+
+// TODO: More options...
+decode.ip6_options = {0 : decode.ip6_pad0Option, 1: decode.ip6_padNOption};
+
 decode.ip6_optionsheader = function(raw_packet, ip, offset, header){
+    header.options = [];
+    var cursor = 0;
+    while(cursor < header.length){
+	var opttype = raw_packet[offset + cursor];
+	var f = decode.ip6_options[opttype];
+	if(f){
+	    var opt = f(raw_packet, offset + cursor, header);
+	    cursor += opt.length;
+	    header.options.push(opt);
+	}else{
+	    // todo: RFC compliant option parsing (use high bits of option type)
+	    var opt = {};
+	    opt.name = "Unknown option";
+	    header.options.push(opt);
+	    break;
+	}
+    }
 }
 
 decode.ip6_routingheader = function(raw_packet, ip, offset, header){
@@ -1017,6 +1053,9 @@ print.ip6 = function(packet) {
     default:
         ret += " proto " + ip.protocol_name + "( " + headers + " ) ";
         break;
+    }
+    if(!ip.valid){
+	ret += " ! Invalid Packet ! ";
     }
 
     return ret;
