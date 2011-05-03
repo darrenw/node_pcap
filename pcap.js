@@ -275,6 +275,39 @@ decode.nulltype = function (raw_packet, offset) {
     return ret;
 };
 
+decode.pppoe_code = {
+    0x0 :"PPPoE Session", 
+    0x7 : "PADO (PPPoE Active Discovery Offer)",
+    0x9 : "PADI (PPPoE Active Disovery Initiation)",
+    0x19 : "PADR (PPPoE Active Discovery Request)",
+    0x65 : "PADS (PPPoE Active Discovery Session Confirmation)",
+    0xa7 : "PADT (PPPoE Active Discovery Terminate)"
+};
+
+decode.pppoe = function (raw_packet, offset) {
+    var ret = {};
+    var vertype = raw_packet[offset];
+    ret.ver = vertype & 0x15;
+    ret.type = vertype >> 4;
+    ret.code = decode.pppoe_code[raw_packet[offset + 1]];
+    ret.session_id = unpack.uint16(raw_packet, offset + 2);
+    ret.valid = raw_packet[offset + 1] === 0 && ret.session_id !== 0 && ret.session_id !== 0xFFFF;
+    ret.length = unpack.uint16(raw_packet, offset + 4);
+    return ret;
+}
+
+
+decode.pppoe_discovery = function (raw_packet, offset) {
+    var ret = {};
+    var vertype = raw_packet[offset];
+    ret.ver = vertype & 0x15;
+    ret.type = vertype >> 4;
+    ret.code = decode.pppoe_code[raw_packet[offset + 1]];
+    ret.session_id = unpack.uint16(raw_packet, offset + 2);
+    ret.length = unpack.uint16(raw_packet, offset + 4);
+    return ret;
+}
+
 decode.ethernet = function (raw_packet, offset) {
     var ret = {};
     
@@ -312,8 +345,11 @@ decode.ethernet = function (raw_packet, offset) {
         case 0x88cc: // LLDP - http://en.wikipedia.org/wiki/Link_Layer_Discovery_Protocol
             ret.lldp = "need to implement LLDP";
             break;
+	case 0x8863:
+	    ret.pppoe = decode.pppoe_discovery(raw_packet, offset);
+	    break;
 	case 0x8864:
-	    ret.ppoe = "need to implement PPPoe";
+	    ret.pppoe = decode.pppoe(raw_packet, offset);
 	    break;
         default:
             console.log("pcap.js: decode.ethernet() - Don't know how to decode ethertype " + ret.ethertype);
@@ -672,6 +708,7 @@ decode.icmp6 = function(raw_packet, offset){
     }else{
         ret.type_desc = "type " + ret.type + " code " + ret.code;
     }
+    // TODO: would be nice to verify the checksum
     return ret;
 }
 
@@ -1132,6 +1169,17 @@ print.arp = function (packet) {
     return ret;
 };
 
+print.pppoe_discovery = function (packet) {
+    return print.pppoe(packet);
+}
+
+
+print.pppoe = function (packet) {
+    var ret = "";
+    ret += "PPPoE (Session: " + packet.link.pppoe.session_id + ", Code: " + packet.link.pppoe.code + ")";
+    return ret;
+}
+
 print.ethernet = function (packet) {
     var ret = packet.link.shost + " -> " + packet.link.dhost;
 
@@ -1151,8 +1199,11 @@ print.ethernet = function (packet) {
     case 0x88cc:
         ret += " LLDP ";
         break;
+    case 0x8863:
+	ret += print.pppoe_discovery(packet);
+	break;
     case 0x8864:
-	ret += " PPPoE ";
+	ret += print.pppoe(packet);
 	break;
     default:
         console.log("pcap.js: print.ethernet() - Don't know how to print ethertype " + packet.link.ethertype);
