@@ -157,14 +157,14 @@ var unpack = {
     },
 	ipv6_addr: function (raw_packet, offset) {
 	    var ret = '';
-	    var octets = [];
+	    var octetpairs = [];
 	    for (var i=offset; i<offset+16; i+=2) {
-		octets.push(unpack.uint16(raw_packet,i).toString(16));
+		octetpairs.push(unpack.uint16(raw_packet,i).toString(16));
 	    }
 	    var curr_start, curr_len = undefined;
 	    var max_start, max_len = undefined;
 	    for(var i = 0; i < 8; i++){
-		if(octets[i] == "0"){
+		if(octetpairs[i] == "0"){
 		    if(curr_start === undefined){
 			curr_len = 1;
 			curr_start = i;
@@ -182,10 +182,10 @@ var unpack = {
 
 	    if(max_start !== undefined){
 			var tosplice = max_start == 0 || (max_start + max_len > 7) ? ":" : "";
-			octets.splice(max_start, max_len,tosplice);
-			if(max_len == 8){octets.push("");}
+			octetpairs.splice(max_start, max_len,tosplice);
+			if(max_len == 8){octetpairs.push("");}
 	    }
-		ret = octets.join(":");
+		ret = octetpairs.join(":");
 	    return ret;
 	}
 };
